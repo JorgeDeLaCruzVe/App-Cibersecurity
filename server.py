@@ -39,7 +39,7 @@ def check_nexdc():
         pass
     try:
         req = urllib.request.Request(CHECK_URL, method="HEAD", headers={"User-Agent":"SecurityAI-Demo-Healthcheck/0.2"})
-        with NoRedirect().build_opener().open(req, timeout=7) as resp:
+        with urllib.request.build_opener(NoRedirect()).open(req, timeout=7) as resp:
             output["http_status"] = resp.status
             output["availability"] = "online" if 200 <= resp.status < 400 else "error"
             for h in HEADERS:
