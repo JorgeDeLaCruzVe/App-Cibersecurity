@@ -1,9 +1,12 @@
+import json
+import os
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from unittest.mock import patch
+import telegram_bot
 import server
 
 class DemoRoutes(unittest.TestCase):
@@ -43,6 +46,32 @@ class DemoRoutes(unittest.TestCase):
         with self.assertRaises(HTTPError) as ctx:
             self.get("/unknown-route")
         self.assertEqual(ctx.exception.code, 404)
+
+    def test_telegram_webhook_rejects_missing_secret(self):
+        payload = json.dumps({"update_id": 1, "message": {"text": "/estado", "chat": {"id": 123}}}).encode()
+        req = Request(self.base + "/api/telegram/webhook", data=payload, method="POST",
+                      headers={"Content-Type":"application/json"})
+        with patch.dict(os.environ, {"TELEGRAM_WEBHOOK_SECRET":"abc123_secure_value_456"}):
+            with self.assertRaises(HTTPError) as ctx:
+                urlopen(req, timeout=3)
+        self.assertEqual(ctx.exception.code, 403)
+
+    def test_telegram_webhook_valid_secret(self):
+        payload = json.dumps({"update_id": 1, "message": {"text": "/servicios", "chat": {"id": 123}}}).encode()
+        req = Request(self.base + "/api/telegram/webhook", data=payload, method="POST",
+                      headers={"Content-Type":"application/json", "X-Telegram-Bot-Api-Secret-Token":"abc123_secure_value_456"})
+        with patch.dict(os.environ, {"TELEGRAM_WEBHOOK_SECRET":"abc123_secure_value_456", "TELEGRAM_CHAT_ID":"123"}):
+            with patch.object(telegram_bot, "send_message", return_value=True) as mocked:
+                with urlopen(req, timeout=3) as resp:
+                    self.assertEqual(resp.status, 200)
+                mocked.assert_called_once()
+                self.assertIn("Computadores", mocked.call_args.args[1])
+
+    def test_telegram_rejects_other_chats(self):
+        with patch.dict(os.environ, {"TELEGRAM_CHAT_ID":"123"}):
+            with patch.object(telegram_bot, "send_message") as mocked:
+                telegram_bot.process_message({"message":{"chat":{"id":456},"text":"/estado"}}, lambda: {})
+                mocked.assert_not_called()
 
     def test_nexdc_endpoint(self):
         stub={"domain":"nexdcglobal.pages.dev", "availability":"test", "tls":"test"}
