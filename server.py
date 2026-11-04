@@ -6,10 +6,13 @@ import socket
 import time
 import threading
 import urllib.request
+import urllib.error
+import ipaddress
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+from email.utils import parsedate_to_datetime
 
 HTML = (Path(__file__).parent / "index.html").read_bytes()
 DOMAIN = "nexdcglobal.pages.dev"  # Hardcoded allowlist: user-supplied NEXDC site
@@ -23,10 +26,10 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 def check_nexdc():
-    output = {"domain": DOMAIN, "checked_at": datetime.now(timezone.utc).isoformat(),
+    output = {"domain": DOMAIN, "checked_at": datetime.now(timezone.utc).isoformat(), "source": "real", "check_type": "non_intrusive",
               "availability": "unavailable", "http_status": None, "tls": "unverified",
               "certificate_expires": None, "headers": {}}
-    # Fixed public site only, without scanning arbitrary user-provided URLs.
+    # Read-only checks against one fixed authorized domain, no arbitrary URLs.
     try:
         with socket.create_connection((DOMAIN, 443), timeout=6) as conn:
             with ssl.create_default_context().wrap_socket(conn, server_hostname=DOMAIN) as tls:
@@ -38,7 +41,7 @@ def check_nexdc():
     except (OSError, ssl.SSLError, ValueError):
         pass
     try:
-        req = urllib.request.Request(CHECK_URL, method="HEAD", headers={"User-Agent":"SecurityAI-Demo-Healthcheck/0.2"})
+        req = urllib.request.Request(CHECK_URL, method="HEAD", headers={"User-Agent":"SecurityAI-Demo-Healthcheck/0.3"})
         with urllib.request.build_opener(NoRedirect()).open(req, timeout=7) as resp:
             output["http_status"] = resp.status
             output["availability"] = "online" if 200 <= resp.status < 400 else "error"
@@ -51,7 +54,20 @@ def check_nexdc():
             output["headers"][h] = bool(e.headers.get(h))
     except (OSError, ValueError):
         output["availability"] = "check_failed"
+    # DNS information is observational only; it does not establish origin-server exposure.
+    try:
+        addresses = sorted({item[4][0] for item in socket.getaddrinfo(DOMAIN, None, type=socket.SOCK_STREAM)})
+        output["dns_addresses"] = [address for address in addresses if ipaddress.ip_address(address).is_global][:8]
+    except OSError:
+        output["dns_addresses"] = []
     return output
+
+def web_summary():
+    s = cached_check()
+    observed = s.get("headers", {})
+    missing = [key for key in HEADERS if observed and not observed.get(key)]
+    return {"domain": DOMAIN, "mode": "real_live", "check": s, "missing_security_headers": missing,
+            "notes": "Las cabeceras ausentes no demuestran por sí solas una vulnerabilidad; revisar contexto. DNS refleja la CDN si aplica."}
 
 def cached_check():
     now = time.monotonic()
@@ -77,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
-        elif path == "/api/health" or path == "/api/web/nexdc/status":
+        elif path in ("/api/health", "/api/web/nexdc/status", "/api/web/sites", "/api/assets"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
         elif path == "/favicon.ico":
@@ -96,9 +112,13 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(HTML)
         elif path == "/api/health":
-            self.send_json({"status":"ok","mode":"limited-real-web-check-and-simulated-endpoints","modules":["endpoint","server","web"]})
+            self.send_json({"status":"ok","mode":"real_web_monitoring_and_pending_private_agents","modules":["endpoint","server","web"]})
         elif path == "/api/web/nexdc/status":
             self.send_json(cached_check())
+        elif path == "/api/web/sites":
+            self.send_json({"sites": [web_summary()], "total": 1, "source": "real"})
+        elif path == "/api/assets":
+            self.send_json({"computers": [], "servers": [], "total": 0, "mode": "awaiting_authenticated_agent_gateway"})
         elif path == "/favicon.ico":
             self.send_response(204)
             self.send_header("Cache-Control", "public, max-age=86400")
