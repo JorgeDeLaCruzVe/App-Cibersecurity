@@ -21,7 +21,11 @@ def send_message(chat_id, message):
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
             return response.status == 200
-    except (OSError, urllib.error.HTTPError, ValueError):
+    except urllib.error.HTTPError as exc:
+        print("Telegram sendMessage HTTP " + str(exc.code), flush=True)
+        return False
+    except (OSError, ValueError):
+        print("Telegram sendMessage transport error", flush=True)
         return False
 
 def authorized(secret_header):
@@ -33,14 +37,18 @@ def process_message(update, checker):
     chat = msg.get("chat", {})
     chat_id = chat.get("id")
     if not isinstance(chat_id, int):
+        print("Telegram update skipped: no chat ID", flush=True)
         return
     cmd = str(msg.get("text", "")).strip().split(maxsplit=1)[0].lower().split("@")[0]
     allowed_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if cmd in ("/id", "/chatid"):
+        print("Telegram /id requested; attempting reply", flush=True)
         send_message(chat_id, "ID de este chat: " + str(chat_id) + "\nAgrégalo como TELEGRAM_CHAT_ID en Render y como secreto en GitHub Actions.")
         return
     if not allowed_id or str(chat_id) != allowed_id:
+        print("Telegram update skipped: chat not authorized", flush=True)
         return
+    print("Telegram authorized command: " + (cmd if cmd in ("/start", "/ayuda", "/help", "/estado", "/status", "/web", "/servicios") else "other"), flush=True)
     if cmd in ("/start", "/ayuda", "/help"):
         send_message(chat_id, "Security AI · Comandos:\n/estado — resumen de los 3 módulos\n/web — estado HTTPS de NEXDC\n/servicios — activos conectados\n/id — identificador de este chat\n\nLas verificaciones web son reales y no intrusivas. Los agentes de PC/servidor aún no están instalados.")
     elif cmd in ("/estado", "/status", "/web", "/servicios"):
