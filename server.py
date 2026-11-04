@@ -60,6 +60,21 @@ def check_nexdc():
         output["http_redirect"] = {"status": exc.code, "location_https": str(exc.headers.get("Location", "")).startswith("https://")}
     except (OSError, ValueError):
         pass
+    # One benign TCP connectivity check and one HEAD request, not a port sweep.
+    try:
+        with socket.create_connection((DOMAIN, 80), timeout=3):
+            output["http_port_80"] = "tcp_reachable"
+    except OSError:
+        output["http_port_80"] = "unreachable_or_filtered"
+    try:
+        req_http = urllib.request.Request("http://" + DOMAIN + "/", method="HEAD",
+                                          headers={"User-Agent":"SecurityAI-Demo-Healthcheck/0.4"})
+        with urllib.request.build_opener(NoRedirect()).open(req_http, timeout=5) as res_http:
+            output["http_redirect"] = {"status": res_http.status, "location_https": str(res_http.headers.get("Location", "")).startswith("https://")}
+    except urllib.error.HTTPError as exc:
+        output["http_redirect"] = {"status": exc.code, "location_https": str(exc.headers.get("Location", "")).startswith("https://")}
+    except (OSError, ValueError):
+        pass
     try:
         req = urllib.request.Request(CHECK_URL, method="HEAD", headers={"User-Agent":"SecurityAI-Demo-Healthcheck/0.3"})
         with urllib.request.build_opener(NoRedirect()).open(req, timeout=7) as resp:
