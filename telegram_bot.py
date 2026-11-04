@@ -22,7 +22,24 @@ def send_message(chat_id, message):
         with urllib.request.urlopen(request, timeout=8) as response:
             return response.status == 200
     except urllib.error.HTTPError as exc:
-        print("Telegram sendMessage HTTP " + str(exc.code), flush=True)
+        # Only predefined error categories: do not log untrusted API text or credentials.
+        try:
+            description = str(json.load(exc).get("description", "")).lower()
+        except (ValueError, OSError):
+            description = ""
+        if "chat not found" in description:
+            category = "chat_not_found"
+        elif "bot was blocked" in description:
+            category = "bot_blocked"
+        elif "user is deactivated" in description:
+            category = "user_deactivated"
+        elif "not enough rights" in description:
+            category = "insufficient_rights"
+        elif "chat_id is empty" in description:
+            category = "empty_chat_id"
+        else:
+            category = "other"
+        print("Telegram sendMessage HTTP " + str(exc.code) + " category=" + category, flush=True)
         return False
     except (OSError, ValueError):
         print("Telegram sendMessage transport error", flush=True)
