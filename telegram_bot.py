@@ -65,14 +65,44 @@ def process_message(update, checker):
     if not allowed_id or str(chat_id) != allowed_id:
         print("Telegram update skipped: chat not authorized", flush=True)
         return
-    print("Telegram authorized command: " + (cmd if cmd in ("/start", "/ayuda", "/help", "/estado", "/status", "/web", "/servicios") else "other"), flush=True)
+    print("Telegram authorized command: " + (cmd if cmd in ("/start", "/ayuda", "/help", "/estado", "/status", "/web", "/servicios", "/seguridad", "/puertos") else "other"), flush=True)
     if cmd in ("/start", "/ayuda", "/help"):
-        send_message(chat_id, "Security AI · Comandos:\n/estado — resumen de los 3 módulos\n/web — estado HTTPS de NEXDC\n/servicios — activos conectados\n/id — identificador de este chat\n\nLas verificaciones web son reales y no intrusivas. Los agentes de PC/servidor aún no están instalados.")
-    elif cmd in ("/estado", "/status", "/web", "/servicios"):
+        send_message(chat_id, "Security AI · Comandos:\n/estado — resumen de los 3 módulos\n/web — estado HTTPS de NEXDC\n/seguridad — informe técnico TLS, HTTP, DNS y cabeceras\n/puertos — puertos web observados en Cloudflare\n/servicios — activos conectados\n/id — identificador de este chat\n\nLas verificaciones web son reales y no intrusivas. Los agentes de PC/servidor aún no están instalados.")
+    elif cmd in ("/estado", "/status", "/web", "/servicios", "/seguridad", "/puertos"):
         if cmd == "/servicios":
             send_message(chat_id, "Security AI · Servicios\n🌐 Web: 1 sitio (NEXDC)\n🖥 Computadores: 0 agentes conectados\n🗄 Servidores: 0 gateways conectados\n\nNo se ha habilitado todavía la respuesta automática.")
             return
         result = checker()
+        if cmd == "/puertos":
+            port80 = result.get("http_port_80", "no verificado")
+            port443 = result.get("https_port_443", "no verificado")
+            redirect = result.get("http_redirect")
+            redirect_text = ("HTTP " + str(redirect.get("status")) + (" → HTTPS" if redirect.get("location_https") else " (sin redirección HTTPS confirmada)")) if isinstance(redirect, dict) else "no verificada"
+            send_message(chat_id, "🛡 Security AI · Puertos web del borde Cloudflare\\n"
+                         + "80/TCP (HTTP): " + str(port80) + "\\n"
+                         + "443/TCP (HTTPS): " + str(port443) + "\\n"
+                         + "Redirección HTTP: " + redirect_text + "\\n"
+                         + "Otros puertos: no examinados\\n\\n"
+                         + "Estos resultados corresponden al dominio público y a su CDN; no identifican puertos de un servidor de origen.")
+            return
+        if cmd == "/seguridad":
+            headers = result.get("headers", {})
+            labels = [("HSTS", "strict-transport-security"), ("CSP", "content-security-policy"),
+                      ("X-Content-Type-Options", "x-content-type-options"), ("X-Frame-Options", "x-frame-options"),
+                      ("Referrer-Policy", "referrer-policy"), ("Permissions-Policy", "permissions-policy"),
+                      ("COOP", "cross-origin-opener-policy"), ("CORP", "cross-origin-resource-policy")]
+            header_lines = [label + ": " + ("presente" if headers.get(k) else "no detectada") for label, k in labels] if headers else ["No disponibles"]
+            dns = ", ".join(result.get("dns_addresses", [])) or "sin resultado"
+            send_message(chat_id, "🛡 Security AI · Informe web\\n"
+                         + "Dominio: " + str(result.get("domain")) + "\\n"
+                         + "HTTP: " + str(result.get("http_status")) + "\\n"
+                         + "TLS: " + str(result.get("tls")) + " / " + str(result.get("tls_protocol") or "desconocido") + "\\n"
+                         + "Cifrado: " + str(result.get("tls_cipher") or "desconocido") + "\\n"
+                         + "Emisor: " + str(result.get("certificate_issuer") or "no verificado") + "\\n"
+                         + "Caduca: " + str(result.get("certificate_expires") or "no verificado") + "\\n"
+                         + "DNS públicos CDN: " + dns + "\\n\\nCabeceras HTTP:\\n" + "\\n".join(header_lines)
+                         + "\\n\\nPuertos: /puertos\\nNo es un pentest; los encabezados ausentes no prueban vulnerabilidades.")
+            return
         availability = result.get("availability", "unknown")
         tls = result.get("tls", "unknown")
         code = result.get("http_status")
