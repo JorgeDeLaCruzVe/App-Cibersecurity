@@ -93,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
-        elif path in ("/api/health", "/api/web/nexdc/status", "/api/web/sites", "/api/assets"):
+        elif path in ("/api/health", "/api/web/nexdc/status", "/api/web/sites", "/api/assets", "/api/telegram/status"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
         elif path == "/favicon.ico":
@@ -117,6 +117,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(cached_check())
         elif path == "/api/web/sites":
             self.send_json({"sites": [web_summary()], "total": 1, "source": "real"})
+        elif path == "/api/telegram/status":
+            bot_ready = bool(os.getenv("TELEGRAM_BOT_TOKEN"))
+            secret_ready = bool(os.getenv("TELEGRAM_WEBHOOK_SECRET"))
+            chat_ready = bool(os.getenv("TELEGRAM_CHAT_ID"))
+            self.send_json({"bot_token_configured": bot_ready, "webhook_secret_configured": secret_ready, "chat_authorized": chat_ready, "bot_can_receive_commands": bot_ready and secret_ready, "notification_target_ready": bot_ready and chat_ready})
         elif path == "/api/assets":
             self.send_json({"computers": [], "servers": [], "total": 0, "mode": "awaiting_authenticated_agent_gateway"})
         elif path == "/favicon.ico":
