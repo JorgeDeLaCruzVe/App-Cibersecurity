@@ -9,6 +9,7 @@ import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HTML = (Path(__file__).parent / "index.html").read_bytes()
 DOMAIN = "nexdcglobal.pages.dev"  # Hardcoded allowlist: user-supplied NEXDC site
@@ -71,8 +72,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(raw)
+    def do_HEAD(self):
+        path = urlsplit(self.path).path
+        if path in ("/", "/index.html"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+        elif path == "/api/health" or path == "/api/web/nexdc/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+        elif path == "/favicon.ico":
+            self.send_response(204)
+        else:
+            self.send_response(404)
+        self.end_headers()
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        path = urlsplit(self.path).path
+        if path in ("/", "/index.html"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -80,10 +95,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
             self.end_headers()
             self.wfile.write(HTML)
-        elif self.path == "/api/health":
+        elif path == "/api/health":
             self.send_json({"status":"ok","mode":"limited-real-web-check-and-simulated-endpoints","modules":["endpoint","server","web"]})
-        elif self.path == "/api/web/nexdc/status":
+        elif path == "/api/web/nexdc/status":
             self.send_json(cached_check())
+        elif path == "/favicon.ico":
+            self.send_response(204)
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
         else:
             self.send_error(404)
     def do_POST(self):
