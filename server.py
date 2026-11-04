@@ -19,7 +19,7 @@ DOMAIN = "nexdcglobal.pages.dev"  # Hardcoded allowlist: user-supplied NEXDC sit
 CHECK_URL = "https://" + DOMAIN + "/"
 _CACHE = {"until": 0, "value": None}
 _LOCK = threading.Lock()
-HEADERS = ("strict-transport-security", "content-security-policy", "x-content-type-options", "x-frame-options", "referrer-policy")
+HEADERS = ("strict-transport-security", "content-security-policy", "x-content-type-options", "x-frame-options", "referrer-policy", "permissions-policy", "cross-origin-opener-policy", "cross-origin-resource-policy")
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -28,17 +28,37 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def check_nexdc():
     output = {"domain": DOMAIN, "checked_at": datetime.now(timezone.utc).isoformat(), "source": "real", "check_type": "non_intrusive",
               "availability": "unavailable", "http_status": None, "tls": "unverified",
-              "certificate_expires": None, "headers": {}}
+              "certificate_expires": None, "headers": {}, "tls_protocol": None, "tls_cipher": None, "certificate_issuer": None, "http_port_80": "not_checked", "https_port_443": "not_checked", "http_redirect": None}
     # Read-only checks against one fixed authorized domain, no arbitrary URLs.
     try:
         with socket.create_connection((DOMAIN, 443), timeout=6) as conn:
+            output["https_port_443"] = "tcp_reachable"
             with ssl.create_default_context().wrap_socket(conn, server_hostname=DOMAIN) as tls:
+                output["tls_protocol"] = tls.version()
+                output["tls_cipher"] = tls.cipher()[0] if tls.cipher() else None
                 cert = tls.getpeercert()
+                issuer = cert.get("issuer", ())
+                output["certificate_issuer"] = ", ".join(str(part[0][1]) for group in issuer for part in group if len(part) >= 2)[:160] or None
                 expiry = cert.get("notAfter")
                 if expiry:
                     output["certificate_expires"] = datetime.strptime(expiry, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc).date().isoformat()
                 output["tls"] = "valid"
     except (OSError, ssl.SSLError, ValueError):
+        pass
+    # One benign TCP connectivity check and one HEAD request, not a port sweep.
+    try:
+        with socket.create_connection((DOMAIN, 80), timeout=3):
+            output["http_port_80"] = "tcp_reachable"
+    except OSError:
+        output["http_port_80"] = "unreachable_or_filtered"
+    try:
+        req_http = urllib.request.Request("http://" + DOMAIN + "/", method="HEAD",
+                                          headers={"User-Agent":"SecurityAI-Demo-Healthcheck/0.4"})
+        with urllib.request.build_opener(NoRedirect()).open(req_http, timeout=5) as res_http:
+            output["http_redirect"] = {"status": res_http.status, "location_https": str(res_http.headers.get("Location", "")).startswith("https://")}
+    except urllib.error.HTTPError as exc:
+        output["http_redirect"] = {"status": exc.code, "location_https": str(exc.headers.get("Location", "")).startswith("https://")}
+    except (OSError, ValueError):
         pass
     try:
         req = urllib.request.Request(CHECK_URL, method="HEAD", headers={"User-Agent":"SecurityAI-Demo-Healthcheck/0.3"})
