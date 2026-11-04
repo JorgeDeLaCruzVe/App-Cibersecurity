@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
-from telegram_bot import authorized as telegram_authorized, process_message as telegram_process, setup_webhook
+from telegram_bot import authorized as telegram_authorized, process_message as telegram_process, verify_token as telegram_verify_token, setup_webhook
 
 HTML = (Path(__file__).parent / "index.html").read_bytes()
 DOMAIN = "nexdcglobal.pages.dev"  # Hardcoded allowlist: user-supplied NEXDC site
@@ -155,5 +155,8 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     if os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_WEBHOOK_SECRET"):
         # Registration is retried at next deploy. Logs never expose tokens.
-        threading.Thread(target=lambda: print("Telegram webhook configured" if setup_webhook() else "Telegram webhook registration failed", flush=True), daemon=True).start()
+        def startup_telegram():
+            print("Telegram token validation: " + telegram_verify_token(), flush=True)
+            print("Telegram webhook configured" if setup_webhook() else "Telegram webhook registration failed", flush=True)
+        threading.Thread(target=startup_telegram, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "10000"))), Handler).serve_forever()
