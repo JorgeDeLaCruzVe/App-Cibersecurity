@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
-from email.utils import parsedate_to_datetime
+from telegram_bot import authorized as telegram_authorized, process_message as telegram_process, setup_webhook
 
 HTML = (Path(__file__).parent / "index.html").read_bytes()
 DOMAIN = "nexdcglobal.pages.dev"  # Hardcoded allowlist: user-supplied NEXDC site
@@ -126,7 +126,29 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
     def do_POST(self):
-        self.send_error(405, "Read-only demo")
+        path = urlsplit(self.path).path
+        if path != "/api/telegram/webhook":
+            self.send_error(405, "Endpoint not available")
+            return
+        if not telegram_authorized(self.headers.get("X-Telegram-Bot-Api-Secret-Token", "")):
+            self.send_error(403, "Forbidden")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "-1"))
+            if length < 2 or length > 16384:
+                self.send_error(413, "Invalid update")
+                return
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("Telegram update must be an object")
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            self.send_error(400, "Invalid update")
+            return
+        telegram_process(payload, check_nexdc)
+        self.send_json({"ok": True})
 
 if __name__ == "__main__":
+    if os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_WEBHOOK_SECRET"):
+        # Registration is retried at next deploy. Logs never expose tokens.
+        threading.Thread(target=lambda: print("Telegram webhook configured" if setup_webhook() else "Telegram webhook registration failed", flush=True), daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "10000"))), Handler).serve_forever()
