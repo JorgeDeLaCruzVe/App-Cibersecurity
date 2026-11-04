@@ -38,7 +38,7 @@ def check_nexdc():
                 output["tls_cipher"] = tls.cipher()[0] if tls.cipher() else None
                 cert = tls.getpeercert()
                 issuer = cert.get("issuer", ())
-                output["certificate_issuer"] = ", ".join(str(part[0][1]) for group in issuer for part in group if len(part) >= 2)[:160] or None
+                output["certificate_issuer"] = ", ".join(str(part[1]) for group in issuer for part in group if len(part) >= 2 and part[0] in ("organizationName", "commonName"))[:160] or None
                 expiry = cert.get("notAfter")
                 if expiry:
                     output["certificate_expires"] = datetime.strptime(expiry, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc).date().isoformat()
