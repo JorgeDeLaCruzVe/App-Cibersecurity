@@ -63,6 +63,21 @@ def process_message(update, checker):
             lines += ["", "🖥 Computadores: 0 conectados", "🗄 Servidores: 0 conectados"]
         send_message(chat_id, "\n".join(lines))
 
+def verify_token():
+    """Check Bot API authorization without logging token or username."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        return "not_configured"
+    request = urllib.request.Request(BOT_API + token + "/getMe", method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            result = json.load(response)
+            return "valid" if result.get("ok") else "api_rejected"
+    except urllib.error.HTTPError as exc:
+        return "api_http_" + str(exc.code)
+    except (OSError, ValueError):
+        return "network_or_invalid_response"
+
 def setup_webhook():
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
@@ -78,7 +93,11 @@ def setup_webhook():
     request = urllib.request.Request(BOT_API + token + "/setWebhook", data=payload,
                                      headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=8) as response:
+        with urllib.request.urlopen(request, timeout=12) as response:
             return bool(json.load(response).get("ok"))
-    except (OSError, urllib.error.HTTPError, ValueError):
+    except urllib.error.HTTPError as exc:
+        print("Telegram setWebhook returned HTTP " + str(exc.code), flush=True)
+        return False
+    except (OSError, ValueError):
+        print("Telegram setWebhook network or response error", flush=True)
         return False
